@@ -1,0 +1,5 @@
+.ipynb_checkpoints
+__pycache__
+*.png
+*.jpg
+resnet50.h5
