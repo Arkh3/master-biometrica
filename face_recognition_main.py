@@ -2,26 +2,24 @@
 """
 Created on Mon Jan 23 18:25:58 2023
 
-@author: rober
+@author: rober, Sofía, Hajar, Andrés
 """
 
 
 
 
-
-
-
+import os
 import cv2
 import numpy as np
-from scipy.spatial import distance
+import matplotlib.pyplot as plt
 import tensorflow.keras.backend as K
 import tensorflow.keras.models as Models
+
+from pathlib import Path
+from sklearn import preprocessing
+from scipy.spatial import distance
 from tensorflow.keras.layers import Flatten
 from tensorflow.keras.preprocessing import image
-from sklearn import preprocessing
-
-
-data_path = 'imagenes'
 
 
 #Detector de caras basado en redes convolucionales 2D
@@ -118,57 +116,186 @@ def preprocess_input(x, data_format=None, version=2):
 
 def generate_embedding(img):
     #Función que genera un embedding a partir de una cara y el modelo entrenado
-  
     img=cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img = cv2.resize(img, (224, 224))
- 
     #img = image.load_img(files)
     img = image.img_to_array(img)
     img = np.expand_dims(img, axis = 0)
     img = preprocess_input(img, version = 2)
-    
-    emb = feature_extractor.predict(img)
+    emb = feature_extractor.predict(img, verbose=0)
     emb_norm = preprocessing.normalize(emb, norm = 'l2', axis = 1, copy = True,
                                        return_norm = False)
-    
     return emb_norm
 
 
-""""Comparamos si son la misma persona a través de una simple.Detectamos las caras de las imagenes. Imagen0 y Imagen1"""
-
-#Ejemplo para dos imágenes
-img_face1=extract_faces(data_path+"/0.jpg")
-img_face2=extract_faces(data_path+"/1.jpg")
-
-"Comparamos si es la misma persona"
-
-embedding = generate_embedding(img_face1)
-embedding = np.asarray(embedding)
-f1 = np.squeeze(embedding)
-embedding = generate_embedding(img_face2)
-embedding = np.asarray(embedding)
-f2 = np.squeeze(embedding)
-
-# Similaridad basada en el producto vectorial. Valores altos significan alta similaridad
-sim=np.dot(f1, f2.T)
-
-if sim>=0.50:
-    print("Misma persona")
-else:
-    print("Diferentes identidades") 
+################################## CÓDIGO DE LA PRÁCTICA ##################################
 
 
-################ TAREA 1 #########################
-
-# Revisa y entiende el código
-
-# Compara con la imagen 2 o 3 con las anterires  
-
-
-################ TAREA 2 #########################
-
-# Genera una pequeña bbdd a partir de imágenes de inet
-# que contenga 3 imágenes por individuo y al menos 5 individuos
-
-# Genera un script para comparar de forma automáticas imágenes de la bbdd            
+def extract_features(image_path, crop_image=False):
+    """ Given an image generate its features for comparison.
+        NOTE: if the face already covers all of the image,
+        extract_faces should be set to False. """ 
     
+    if crop_image:
+        image = extract_faces(image_path)
+    else:
+        image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+        
+    embedding = generate_embedding(image)
+    embedding = np.asarray(embedding)
+
+    return np.squeeze(embedding)
+
+
+def compare_images(img_path1, img_path2, threshold=0.5, crop_image=False):
+    """ Compara dos imágenes y devuelve si pertenecen a la misma persona """
+    
+    f1 = extract_features(img_path1, crop_image)
+    f2 = extract_features(img_path2, crop_image)
+    
+    similarity = np.dot(f1, f2)
+    
+    if similarity >= threshold:
+        print(f"Las imágenes pertenecen a la misma persona con similitud {similarity:.2f}")
+        return True
+    else:
+        print(f"Las imágenes pertenecen a diferentes personas con similitud {similarity:.2f}")
+        return False
+
+
+# Crear base de datos de embeddings
+def create_embeddings_db(bbdd_path):
+    """ Crea una base de datos de embeddings a partir de las imágenes en bbdd_path """
+    print(" Creando la base de datos de embeddings...")
+    embeddings_db = {}
+    bbdd_path = Path(bbdd_path) # Convertir a Path para manejar rutas correctamente
+    for person in os.listdir(bbdd_path):
+        person_path = bbdd_path / person  # Construcción segura de rutas
+        
+        if person_path.is_dir():
+            embeddings_db[person] = []
+            
+            for img_name in os.listdir(person_path):
+                img_path = person_path / img_name  # Construcción segura de rutas
+
+                embedding = extract_features(img_path)
+                embeddings_db[person].append(embedding)
+    
+    print(" Base de datos de embeddings creada con éxito.")
+    return embeddings_db
+
+
+def calculate_far_frr_plot(embeddings_db):
+    """ Calcula FAR y FRR para diferentes umbrales y genera un gráfico. """
+
+    thresholds=np.linspace(0, 1, 50)
+    
+    fars = []
+    frrs = []
+ 
+    people = list(embeddings_db.keys())
+
+    for threshold in thresholds:
+        false_accepts = 0
+        false_rejects = 0
+        total_genuine = 0
+        total_impostor = 0
+
+        for person in people:
+            embeddings = embeddings_db[person]
+
+            #  **Calcular FRR (False Rejection Rate)**
+            for i in range(len(embeddings)):
+                for j in range(i + 1, len(embeddings)):
+                    sim = np.dot(embeddings[i], embeddings[j].T)  # Comparar imágenes de la MISMA persona
+                    total_genuine += 1
+                    if sim < threshold:
+                        false_rejects += 1  # Error: No reconoce a la persona correcta
+
+            #  **Calcular FAR (False Acceptance Rate)**
+            for other_person in people:
+                if other_person != person:
+                    for emb1 in embeddings:
+                        for emb2 in embeddings_db[other_person]:
+                            sim = np.dot(emb1, emb2.T)  # Comparar imágenes de DIFERENTES personas
+                            total_impostor += 1
+                            if sim >= threshold:
+                                false_accepts += 1  # Error: Acepta a la persona equivocada
+
+        # Calcular tasas FAR y FRR
+        far = false_accepts / total_impostor if total_impostor > 0 else 0
+        frr = false_rejects / total_genuine if total_genuine > 0 else 0
+
+        fars.append(far)
+        frrs.append(frr)
+
+    # **Generar el gráfico**
+    plt.figure(figsize=(8, 6))
+    plt.plot(thresholds, fars, label="False Acceptance Rate (FAR)", color="red")
+    plt.plot(thresholds, frrs, label="False Rejection Rate (FRR)", color="blue")
+    plt.xlabel("Threshold")
+    plt.ylabel("Error Rate")
+    plt.title("FAR vs FRR en función del umbral")
+    plt.legend()
+    plt.grid()
+    plt.show()
+
+    return fars, frrs
+
+
+def calcular_histograma(embeddings_db, thresholds=np.linspace(0, 1, 50)):
+    """ Calcula FAR y FRR para diferentes umbrales y genera un gráfico. """
+
+    fars = []
+    frrs = []
+    same_person=[]
+    different_person=[]
+    
+    people = list(embeddings_db.keys())
+
+    for threshold in thresholds:
+        false_accepts = 0
+        false_rejects = 0
+        total_genuine = 0
+        total_impostor = 0
+
+        for person in people:
+            embeddings = embeddings_db[person]
+
+            #  **Calcular FRR (False Rejection Rate)**
+            for i in range(len(embeddings)):
+                for j in range(i + 1, len(embeddings)):
+                    sim = np.dot(embeddings[i], embeddings[j].T)  # Comparar imágenes de la MISMA persona
+                    different_person.append(sim)
+                    total_genuine += 1
+                    if sim < threshold:
+                        false_rejects += 1  # Error: No reconoce a la persona correcta
+
+            #  **Calcular FAR (False Acceptance Rate)**
+            for other_person in people:
+                if other_person != person:
+                    for emb1 in embeddings:
+                        for emb2 in embeddings_db[other_person]:
+                            sim = np.dot(emb1, emb2.T)  # Comparar imágenes de DIFERENTES personas
+                            same_person.append(sim)
+                            total_impostor += 1
+                            if sim >= threshold:
+                                false_accepts += 1  # Error: Acepta a la persona equivocada
+
+        # Calcular tasas FAR y FRR
+        far = false_accepts / total_impostor if total_impostor > 0 else 0
+        frr = false_rejects / total_genuine if total_genuine > 0 else 0
+
+        fars.append(far)
+        frrs.append(frr)
+
+    # hacer el histogramama de las dos similitudes, que estan metidos en el array, sam_person y different_person
+    plt.figure(figsize=(8, 6))
+    plt.hist(same_person, bins=50, alpha=0.5, color='b', label='same person')
+    plt.hist(different_person, bins=50, alpha=0.5, color='r', label='different person')
+    plt.xlabel("Threshold")
+    plt.ylabel("Error Rate")
+    plt.title("FAR vs FRR en función del umbral")
+    plt.legend()
+    
+    return same_person, different_person
