@@ -6,10 +6,9 @@ Created on Mon Jan 23 18:25:58 2023
 """
 
 
-
-
 import os
 import cv2
+import random
 import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow.keras.backend as K
@@ -17,10 +16,14 @@ import tensorflow.keras.models as Models
 
 from pathlib import Path
 from sklearn import preprocessing
+from sklearn.manifold import TSNE
 from scipy.spatial import distance
 from tensorflow.keras.layers import Flatten
 from tensorflow.keras.preprocessing import image
 
+
+random.seed(42)
+np.random.seed(42)  
 
 #Detector de caras basado en redes convolucionales 2D
 detector_dnn = cv2.dnn.readNetFromCaffe('deploy.prototxt.txt', 'res10_300x300_ssd_iter_140000.caffemodel')
@@ -185,6 +188,10 @@ def create_embeddings_db(bbdd_path):
     return embeddings_db
 
 
+
+#### TAREA 1
+
+
 def calculate_far_frr_plot(embeddings_db):
     """ Calcula FAR y FRR para diferentes umbrales y genera un gráfico. """
 
@@ -299,3 +306,111 @@ def calcular_histograma(embeddings_db, thresholds=np.linspace(0, 1, 50)):
     plt.legend()
     
     return same_person, different_person
+
+
+
+#### TAREA 2
+
+
+def create_embeddings_6_groups(bbdd_path):
+    """ Crea una base de datos de embeddings a partir de las imágenes en bbdd_path """
+
+    print(" Creando la base de datos de embeddings...")
+
+    embeddings_db = {}
+    bbdd_path = Path(bbdd_path)  
+ 
+    for group in os.listdir(bbdd_path):
+        group_path = bbdd_path / group  
+ 
+        if group_path.is_dir():
+            embeddings_db[group] = []
+ 
+            # Obtener todas las personas (subcarpetas) en el grupo
+            persons = [person for person in os.listdir(group_path) if os.path.isdir(group_path / person)]
+ 
+            # Seleccionar 50 personas aleatorias si hay más de 50
+            selected_persons = random.sample(persons, 50) if len(persons) > 50 else persons
+ 
+            # Recorrer las 50 personas seleccionadas
+            for person in selected_persons:
+                person_path = group_path / person
+ 
+                # Obtener las imágenes de la persona
+                img_files = [f for f in os.listdir(person_path) if f.endswith(('.jpg'))]
+ 
+                # Seleccionar la primera imagen de la persona
+                img_file = img_files[0]  # Elegir la primera imagen
+                img_path = person_path / img_file
+ 
+                embedding = extract_features(img_path)
+                embeddings_db[group].append(embedding)
+             
+    return embeddings_db
+ 
+
+
+#### TAREA 3
+
+def apply_tsne(embeddings_db):
+    """Aplica t-SNE a los embeddings y los visualiza según su grupo étnico"""
+    embeddings_list = []
+    labels_list = []
+    
+    # Mapear grupos a valores numéricos
+    group_mapping = {'A': 0, 'B': 1, 'N': 2}  # 3 grupos de etnia: A, B, N
+    for group_name, embeddings in embeddings_db.items():
+        if len(embeddings) == 0:
+            print(f"Advertencia: El grupo {group_name} no tiene embeddings.")
+            continue
+ 
+        ethnic_group = group_name[1]  # Segunda letra indica etnia (A, B o N)
+        label = group_mapping.get(ethnic_group, -1)  # Obtener el índice del grupo
+        for emb in embeddings:
+            if isinstance(emb, np.ndarray) and emb.shape[0] > 0:  # Verifica si es un array válido
+                embeddings_list.append(emb)
+                labels_list.append(label)
+ 
+    if len(embeddings_list) == 0:
+        raise ValueError("No hay embeddings válidos para aplicar t-SNE.")
+
+    # Convertir cada embedding a un vector 1D
+    #embeddings_list = [emb.flatten() for emb in embeddings_list]
+
+ 
+    # Convertir la lista a una matriz numpy
+    try:
+        embeddings_matrix = np.vstack(embeddings_list)
+    except ValueError as e:
+        print("Error en np.vstack(). Verifica que todos los embeddings tengan el mismo tamaño.")
+        for i, emb in enumerate(embeddings_list):
+            print(f"Embedding {i} shape: {np.array(emb).shape}")
+        raise e
+ 
+    print(f"Shape de embeddings_matrix: {embeddings_matrix.shape}")
+ 
+    labels_array = np.array(labels_list)
+    # Definir el valor de perplexity en función del número de muestras
+    n_samples = len(embeddings_list)
+    perplexity = min(30, max(5, n_samples // 3))
+    print(f"Perplexity usada en t-SNE: {perplexity}")
+ 
+    # Aplicar t-SNE
+    tsne = TSNE(n_components=2, perplexity=perplexity, random_state=42)
+    # tsne = TSNE(n_components=2, perplexity=perplexity, max_iter=3000, random_state=42)
+ 
+    print(f"Shape de embeddings_matrix antes de t-SNE: {embeddings_matrix.shape}")
+
+ 
+ 
+    embeddings_2d = tsne.fit_transform(embeddings_matrix)
+
+ 
+    plt.figure(figsize=(8, 6))
+    scatter = plt.scatter(embeddings_2d[:, 1], embeddings_2d[:, 0], c=labels_array, cmap='viridis', alpha=0.7)
+    plt.colorbar(scatter, ticks=[0, 1, 2], label="Grupo étnico (A, B, N)")
+    plt.title("Visualización de embeddings con t-SNE")
+    plt.xlabel("t-SNE Dim 1")
+    plt.ylabel("t-SNE Dim 2")
+    plt.show()
+    return embeddings_2d, labels_list, embeddings_matrix
