@@ -28,8 +28,9 @@ np.random.seed(42)
 #Detector de caras basado en redes convolucionales 2D
 detector_dnn = cv2.dnn.readNetFromCaffe('deploy.prototxt.txt', 'res10_300x300_ssd_iter_140000.caffemodel')
 
+
 #CARGAMOS EL MODELO DE RECONOCIMIENTO FACIAL basado en Resnet-50 y entrenado con VGG-Face
-model_file = 'resnet50.h5'
+model_file = '../PRACTICA 1/resnet50.h5'
 model = Models.load_model(model_file)
 last_layer = model.get_layer('avg_pool').output
 feature_layer = Flatten(name = 'flatten')(last_layer)
