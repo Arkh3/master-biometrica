@@ -5,6 +5,7 @@ Created on Mon Jan 23 18:25:58 2023
 @author: rober, Sofía, Hajar, Andrés
 """
 
+# ESTE ES MIO
 
 import os
 import cv2
