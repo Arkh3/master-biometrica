@@ -214,13 +214,15 @@ def create_embeddings_10_ppl_dataset(bbdd_10_ppl_dir, embeddings_10_ppl_dataset_
 
 
 
+
 #### TAREA 0
 
-def compare_images(img_path1, img_path2, threshold=0.5, crop_image=False):
+
+def compare_images(img_path1, img_path2, threshold=0.5):
     """ Compara dos imágenes y devuelve si pertenecen a la misma persona """
     
-    f1 = extract_features(img_path1, crop_image)
-    f2 = extract_features(img_path2, crop_image)
+    f1 = extract_features(img_path1, True)
+    f2 = extract_features(img_path2, True)
     
     similarity = np.dot(f1, f2)
     
@@ -238,6 +240,7 @@ def compare_images(img_path1, img_path2, threshold=0.5, crop_image=False):
 
 def calculate_far_frr_plot(embeddings_db):
     """ Calcula FAR y FRR para diferentes umbrales y genera un gráfico. """
+
     thresholds=np.linspace(0, 1, 50)
     
     fars = []
@@ -294,58 +297,32 @@ def calculate_far_frr_plot(embeddings_db):
 
 
 def calcular_histograma(embeddings_db, thresholds=np.linspace(0, 1, 50)):
-    """ Calcula FAR y FRR para diferentes umbrales y genera un gráfico. """
-
-    fars = []
-    frrs = []
     same_person=[]
     different_person=[]
     
     people = list(embeddings_db.keys())
 
-    for threshold in thresholds:
-        false_accepts = 0
-        false_rejects = 0
-        total_genuine = 0
-        total_impostor = 0
+    for person in people:
+        embeddings = embeddings_db[person]
 
-        for person in people:
-            embeddings = embeddings_db[person]
-
-            #  **Calcular FRR (False Rejection Rate)**
-            for i in range(len(embeddings)):
-                for j in range(i + 1, len(embeddings)):
-                    sim = np.dot(embeddings[i], embeddings[j].T)  # Comparar imágenes de la MISMA persona
-                    different_person.append(sim)
-                    total_genuine += 1
-                    if sim < threshold:
-                        false_rejects += 1  # Error: No reconoce a la persona correcta
-
-            #  **Calcular FAR (False Acceptance Rate)**
+        for i in range(len(embeddings)):
+            for j in range(i + 1, len(embeddings)):
+                sim = np.dot(embeddings[i], embeddings[j].T)  # Comparar imágenes de la MISMA persona
+                same_person.append(sim)
+    
             for other_person in people:
                 if other_person != person:
-                    for emb1 in embeddings:
-                        for emb2 in embeddings_db[other_person]:
-                            sim = np.dot(emb1, emb2.T)  # Comparar imágenes de DIFERENTES personas
-                            same_person.append(sim)
-                            total_impostor += 1
-                            if sim >= threshold:
-                                false_accepts += 1  # Error: Acepta a la persona equivocada
-
-        # Calcular tasas FAR y FRR
-        far = false_accepts / total_impostor if total_impostor > 0 else 0
-        frr = false_rejects / total_genuine if total_genuine > 0 else 0
-
-        fars.append(far)
-        frrs.append(frr)
+                    for emb2 in embeddings_db[other_person]:
+                        sim = np.dot(embeddings[i], emb2.T)  # Comparar imágenes de DIFERENTES personas
+                        different_person.append(sim)
 
     # hacer el histogramama de las dos similitudes, que estan metidos en el array, sam_person y different_person
     plt.figure(figsize=(8, 6))
-    plt.hist(same_person, bins=50, alpha=0.5, color='b', label='same person')
-    plt.hist(different_person, bins=50, alpha=0.5, color='r', label='different person')
-    plt.xlabel("Threshold")
-    plt.ylabel("Error Rate")
-    plt.title("FAR vs FRR en función del umbral")
+    plt.hist(same_person, alpha=0.5, color='b', label='same person', density=True)
+    plt.hist(different_person, alpha=0.5, color='r', label='different person', density=True)
+    plt.xlabel("Ocurrencias")
+    plt.ylabel("Similitud")
+    plt.title("Similitudes")
     plt.legend()
     
     return same_person, different_person
@@ -355,60 +332,33 @@ def calcular_histograma(embeddings_db, thresholds=np.linspace(0, 1, 50)):
 #### TAREA 2
 
 
-def create_embeddings_6_groups(bbdd_path, num_embedding=50):
+def create_embeddings_subset(embeddings, num_embedding=50):
     """ Crea una base de datos de embeddings a partir de las imágenes en bbdd_path """
-
-    print(" Creando la base de datos de embeddings...")
-
-    embeddings_db = {}
-    bbdd_path = Path(bbdd_path)  
- 
-    for group in os.listdir(bbdd_path):
-        group_path = bbdd_path / group  
- 
-        if group_path.is_dir():
-            embeddings_db[group] = []
- 
-            # Obtener todas las personas (subcarpetas) en el grupo
-            persons = [person for person in os.listdir(group_path) if os.path.isdir(group_path / person)]
- 
-            # Seleccionar num_embedding personas aleatorias si hay más de num_embedding
-            selected_persons = random.sample(persons, num_embedding) if len(persons) > num_embedding else persons
- 
-            # Recorrer las num_embedding personas seleccionadas
-            for person in selected_persons:
-                person_path = group_path / person
- 
-                # Obtener las imágenes de la persona
-                img_files = [f for f in os.listdir(person_path) if f.endswith(('.jpg'))]
- 
-                # Seleccionar la primera imagen de la persona
-                img_file = img_files[0]  # Elegir la primera imagen
-                img_path = person_path / img_file
- 
-                embedding = extract_features(img_path)
-                embeddings_db[group].append(embedding)
-             
-    return embeddings_db
- 
+    embeddings_subset = {}
+    
+    for key in embeddings:
+        embeddings_subset[key] = embeddings[key][:num_embedding]
+        
+    return embeddings_subset
 
 
 #### TAREA 3
 
 def apply_tsne(embeddings_db):
-    """Aplica t-SNE a los embeddings y los visualiza según su grupo étnico"""
+    """Aplica t-SNE a los embeddings y los visualiza según su grupo étnico y género"""
+    
     embeddings_list = []
     labels_list = []
     
     # Mapear grupos a valores numéricos
-    group_mapping = {'A': 0, 'B': 1, 'N': 2}  # 3 grupos de etnia: A, B, N
+    group_mapping = {'HA': 0, 'HB': 1, 'HN': 2, 'MA': 3, 'MB': 4, 'MN': 5}  # 6 grupos según etnia y género
+    
+    # Guardar los embeddings mappeados con su etiqueta
     for group_name, embeddings in embeddings_db.items():
-        if len(embeddings) == 0:
-            print(f"Advertencia: El grupo {group_name} no tiene embeddings.")
-            continue
- 
-        ethnic_group = group_name[1]  # Segunda letra indica etnia (A, B o N)
-        label = group_mapping.get(ethnic_group, -1)  # Obtener el índice del grupo
+        ethnic_group = group_name[:2]  # Primeras dos letras indican grupo
+        
+        label = group_mapping[ethnic_group]  # Obtener la etiqueta del grupo
+        
         for emb in embeddings:
             if isinstance(emb, np.ndarray) and emb.shape[0] > 0:  # Verifica si es un array válido
                 embeddings_list.append(emb)
@@ -417,10 +367,6 @@ def apply_tsne(embeddings_db):
     if len(embeddings_list) == 0:
         raise ValueError("No hay embeddings válidos para aplicar t-SNE.")
 
-    # Convertir cada embedding a un vector 1D
-    #embeddings_list = [emb.flatten() for emb in embeddings_list]
-
- 
     # Convertir la lista a una matriz numpy
     try:
         embeddings_matrix = np.vstack(embeddings_list)
@@ -431,32 +377,30 @@ def apply_tsne(embeddings_db):
         raise e
  
     print(f"Shape de embeddings_matrix: {embeddings_matrix.shape}")
- 
+    
     labels_array = np.array(labels_list)
-    # Definir el valor de perplexity en función del número de muestras
-    n_samples = len(embeddings_list)
-    perplexity = min(30, max(5, n_samples // 3))
-    print(f"Perplexity usada en t-SNE: {perplexity}")
  
     # Aplicar t-SNE
-    tsne = TSNE(n_components=2, perplexity=perplexity, random_state=42)
-    # tsne = TSNE(n_components=2, perplexity=perplexity, max_iter=3000, random_state=42)
+    tsne = TSNE(n_components=2, random_state=42)
  
     print(f"Shape de embeddings_matrix antes de t-SNE: {embeddings_matrix.shape}")
-
- 
  
     embeddings_2d = tsne.fit_transform(embeddings_matrix)
 
- 
+    # Plot the results
     plt.figure(figsize=(8, 6))
-    scatter = plt.scatter(embeddings_2d[:, 1], embeddings_2d[:, 0], c=labels_array, cmap='viridis', alpha=0.7)
-    plt.colorbar(scatter, ticks=[0, 1, 2], label="Grupo étnico (A, B, N)")
-    plt.title("Visualización de embeddings con t-SNE")
+    scatter = plt.scatter(embeddings_2d[:, 1], embeddings_2d[:, 0], c=labels_array%3, cmap='viridis', alpha=0.7)
+    plt.title("Visualización de embeddings con t-SNE (etnias).")
     plt.xlabel("t-SNE Dim 1")
     plt.ylabel("t-SNE Dim 2")
     plt.show()
-    return embeddings_2d, labels_list, embeddings_matrix
+
+    plt.figure(figsize=(8, 6))
+    scatter = plt.scatter(embeddings_2d[:, 1], embeddings_2d[:, 0], c=labels_array, cmap='viridis', alpha=0.7)
+    plt.title("Visualización de embeddings con t-SNE (etnias y géneros).")
+    plt.xlabel("t-SNE Dim 1")
+    plt.ylabel("t-SNE Dim 2")
+    plt.show()
 
 
 
