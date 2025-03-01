@@ -356,7 +356,6 @@ def apply_tsne(embeddings_db):
     # Guardar los embeddings mappeados con su etiqueta
     for group_name, embeddings in embeddings_db.items():
         ethnic_group = group_name[:2]  # Primeras dos letras indican grupo
-        
         label = group_mapping[ethnic_group]  # Obtener la etiqueta del grupo
         
         for emb in embeddings:
@@ -375,16 +374,11 @@ def apply_tsne(embeddings_db):
         for i, emb in enumerate(embeddings_list):
             print(f"Embedding {i} shape: {np.array(emb).shape}")
         raise e
- 
-    print(f"Shape de embeddings_matrix: {embeddings_matrix.shape}")
-    
+     
     labels_array = np.array(labels_list)
  
     # Aplicar t-SNE
-    tsne = TSNE(n_components=2, random_state=42)
- 
-    print(f"Shape de embeddings_matrix antes de t-SNE: {embeddings_matrix.shape}")
- 
+    tsne = TSNE(n_components=2, random_state=4)
     embeddings_2d = tsne.fit_transform(embeddings_matrix)
 
     # Plot the results
