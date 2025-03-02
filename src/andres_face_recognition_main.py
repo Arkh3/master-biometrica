@@ -42,7 +42,7 @@ models_dir = os.path.join('..', 'models')
 bbdd_10_ppl_dir = os.path.join(data_dir, 'bbdd_10_personas')
 embeddings_10_ppl_dataset_path = os.path.join(data_dir, 'embeddings_10_ppl_dataset.pkl')
 imgs_dataset_dir = os.path.join(data_dir,'DiveFace4K_120', '4K_120')
-embeddings_dataset_path = os.path.join(data_dir,'embeddings_dataset.pkl')
+embeddings_dataset_path = os.path.join(data_dir,'main_embeddings_dataset.pkl')
 
 deploy_path = os.path.join(models_dir, 'deploy.prototxt.txt')
 detector_path = os.path.join(models_dir, 'res10_300x300_ssd_iter_140000.caffemodel')
@@ -162,14 +162,14 @@ def load_datasets():
 
     else:
         print("Embeddings dataset does not exists. Creating it...")
-        embeddings_10_ppl_dataset = create_embeddings_10_ppl_dataset(bbdd_10_ppl_dir, embeddings_10_ppl_dataset_path)
+        create_embeddings_10_ppl_dataset(bbdd_10_ppl_dir, embeddings_10_ppl_dataset_path)
 
     if os.path.isfile(embeddings_dataset_path):
         print("Embeddings dataset already exists. Loading...")
 
     else:
         print("Embeddings dataset does not exists. Creating and loading the dataset...")
-        create_1000embeddings_dataset(imgs_dataset_dir, embeddings_dataset_path)
+        create_embeddings_dataset(imgs_dataset_dir, embeddings_dataset_path)
 
     # Load pickle object
     with open(embeddings_10_ppl_dataset_path, "rb") as file:
@@ -177,11 +177,11 @@ def load_datasets():
     
     # Load pickle object
     with open(embeddings_dataset_path, "rb") as file:
-        embeddings_1000_dataset = pickle.load(file)
+        embeddings_dataset = pickle.load(file)
 
     print("Embeddings datasets loaded.")
     
-    return embeddings_10_ppl_dataset, embeddings_1000_dataset
+    return embeddings_10_ppl_dataset, embeddings_dataset
 
 
 
@@ -201,7 +201,7 @@ def extract_features(image_path, crop_image=False):
     return np.squeeze(embedding)
 
 
-def create_1000embeddings_dataset(bbdd_path, dataset_path, num_embeddings_group=1000):
+def create_embeddings_dataset(bbdd_path, dataset_path, num_embeddings_group=750):
     """ Crea una base de datos de embeddings a partir de las imágenes en bbdd_path """
 
     embeddings_db = {}
@@ -423,7 +423,7 @@ def apply_tsne(embeddings_db):
     labels_array = np.array(labels_list)
  
     # Aplicar t-SNE
-    tsne = TSNE(n_components=2, random_state=4)
+    tsne = TSNE(n_components=2, random_state=40)
     embeddings_2d = tsne.fit_transform(embeddings_matrix)
 
     # Plot the results
@@ -467,7 +467,7 @@ def generate_test_train(embeddings_db):
     X = np.array(X).astype(float)
     y = to_categorical(y)  # Convertir a one-hot encoding
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.4, random_state=42, stratify=y)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.33, random_state=42, stratify=y)
  
     return X_train, X_test, y_train, y_test
 
@@ -534,23 +534,16 @@ def train_gender_model(x_train, y_train, x_test, y_test):
 #### TAREA 2.2
 
 def get_all_accuracies_table(gender_models, embeddings):
-    accuracies = {  'A': {
-                        'A': None,
-                        'B': None,
-                        'N': None},
-                    'B': {
-                        'A': None,
-                        'B': None,
-                        'N': None},
-                    'N': {
-                        'A': None,
-                        'B': None,
-                        'N': None}
-                 }
+    accuracies = {}
+    
+    for key in gender_models:
+        accuracies[key] = {}
+        for key2 in embeddings:
+            accuracies[key][key2] = None
 
     # Evaluate the model and retrieve accuracies
     for ethnicity, model in gender_models.items():
-        for other_ethnicity in gender_models.keys():
+        for other_ethnicity in embeddings.keys():
             x_test = np.concatenate((embeddings[other_ethnicity]["x_train"], embeddings[other_ethnicity]["x_test"]))
             y_test = np.concatenate((embeddings[other_ethnicity]["y_train"], embeddings[other_ethnicity]["y_test"]))
 
