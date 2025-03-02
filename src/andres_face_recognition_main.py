@@ -9,28 +9,45 @@ Created on Mon Jan 23 18:25:58 2023
 import os
 import cv2
 import random
+import pickle
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import tensorflow.keras.backend as K
 import tensorflow.keras.models as Models
-import pickle
+
 
 from pathlib import Path
+from scipy.spatial import distance
+
 from sklearn import preprocessing
 from sklearn.manifold import TSNE
-from scipy.spatial import distance
+from sklearn.model_selection import train_test_split
+
 from tensorflow.keras.layers import Flatten
 from tensorflow.keras.preprocessing import image
-from sklearn.model_selection import train_test_split
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.utils import to_categorical
+
 
 
 random.seed(42)
 np.random.seed(42)
 
 # Rutas a los archivos:
-deploy_path = os.path.join('..', 'models', 'deploy.prototxt.txt')
-detector_path = os.path.join('..', 'models', 'res10_300x300_ssd_iter_140000.caffemodel')
-model_file = os.path.join('..', 'models', 'resnet50.h5')
+data_dir = os.path.join('..', 'data')
+models_dir = os.path.join('..', 'models')
+
+bbdd_10_ppl_dir = os.path.join(data_dir, 'bbdd_10_personas')
+embeddings_10_ppl_dataset_path = os.path.join(data_dir, 'embeddings_10_ppl_dataset.pkl')
+imgs_dataset_dir = os.path.join(data_dir,'DiveFace4K_120', '4K_120')
+embeddings_dataset_path = os.path.join(data_dir,'embeddings_dataset.pkl')
+
+deploy_path = os.path.join(models_dir, 'deploy.prototxt.txt')
+detector_path = os.path.join(models_dir, 'res10_300x300_ssd_iter_140000.caffemodel')
+model_file = os.path.join(models_dir, 'resnet50.h5')
+
 
 #Detector de caras basado en redes convolucionales 2D
 detector_dnn = cv2.dnn.readNetFromCaffe(deploy_path, detector_path)
@@ -139,6 +156,34 @@ def generate_embedding(img):
 
 ################################## CÓDIGO DE LA PRÁCTICA ##################################
 
+def load_datasets():
+    if os.path.isfile(embeddings_10_ppl_dataset_path):  
+        print("Embeddings dataset already exists. Loading...")
+
+    else:
+        print("Embeddings dataset does not exists. Creating it...")
+        embeddings_10_ppl_dataset = create_embeddings_10_ppl_dataset(bbdd_10_ppl_dir, embeddings_10_ppl_dataset_path)
+
+    if os.path.isfile(embeddings_dataset_path):
+        print("Embeddings dataset already exists. Loading...")
+
+    else:
+        print("Embeddings dataset does not exists. Creating and loading the dataset...")
+        create_1000embeddings_dataset(imgs_dataset_dir, embeddings_dataset_path)
+
+    # Load pickle object
+    with open(embeddings_10_ppl_dataset_path, "rb") as file:
+        embeddings_10_ppl_dataset = pickle.load(file)
+    
+    # Load pickle object
+    with open(embeddings_dataset_path, "rb") as file:
+        embeddings_1000_dataset = pickle.load(file)
+
+    print("Embeddings datasets loaded.")
+    
+    return embeddings_10_ppl_dataset, embeddings_1000_dataset
+
+
 
 def extract_features(image_path, crop_image=False):
     """ Given an image generate its features for comparison.
@@ -215,7 +260,7 @@ def create_embeddings_10_ppl_dataset(bbdd_10_ppl_dir, embeddings_10_ppl_dataset_
 
 
 
-#### TAREA 0
+#### TAREA 1.0
 
 
 def compare_images(img_path1, img_path2, threshold=0.5):
@@ -235,7 +280,7 @@ def compare_images(img_path1, img_path2, threshold=0.5):
     
 
 
-#### TAREA 1
+#### TAREA 1.1
 
 
 def calculate_far_frr_plot(embeddings_db):
@@ -296,7 +341,7 @@ def calculate_far_frr_plot(embeddings_db):
     return fars, frrs
 
 
-def calcular_histograma(embeddings_db, thresholds=np.linspace(0, 1, 50)):
+def calcular_histograma_similitudes(embeddings_db, thresholds=np.linspace(0, 1, 50)):
     same_person=[]
     different_person=[]
     
@@ -329,7 +374,7 @@ def calcular_histograma(embeddings_db, thresholds=np.linspace(0, 1, 50)):
 
 
 
-#### TAREA 2
+#### TAREA 1.2
 
 
 def create_embeddings_subset(embeddings, num_embedding=50):
@@ -342,7 +387,7 @@ def create_embeddings_subset(embeddings, num_embedding=50):
     return embeddings_subset
 
 
-#### TAREA 3
+#### TAREA 1.3
 
 def apply_tsne(embeddings_db):
     """Aplica t-SNE a los embeddings y los visualiza según su grupo étnico y género"""
@@ -398,31 +443,128 @@ def apply_tsne(embeddings_db):
 
 
 
-#### TAREA 4
+#### TAREA 2.1
 
-def preprocess_embeddings_for_trainning(embeddings_db_demographic):
-    # Load DiveFace dataset and preprocess
+def generate_test_train(embeddings_db):
+    """
+    Convierte un diccionario de embeddings en matrices X e y.
+    Parámetros:
+    - embeddings_db: dict, diccionario con claves que indican el grupo y valores con listas de embeddings.
+ 
+    Retorna:
+    - X: numpy array con los embeddings.
+    - y: numpy array con las etiquetas de género (one-hot encoded).
+    """
     X = []
-    y_ethnicity = []
-    y_gender = []
+    y = []
+ 
+    for label, embeddings in embeddings_db.items():
+        gender = 0 if label[0] == 'H' else 1  # Hombre (0), Mujer (1)
+        for emb in embeddings:
+            X.append(emb)
+            y.append(gender)
+ 
+    X = np.array(X).astype(float)
+    y = to_categorical(y)  # Convertir a one-hot encoding
 
-    gender_mapper = {'M': 0,
-                     'H': 1}
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.4, random_state=42, stratify=y)
+ 
+    return X_train, X_test, y_train, y_test
 
-    ethnicity_mapper = {'A': 0,
-                        'B': 1,
-                        'N': 2}
-    
-    for group_name, embeddings in embeddings_db_demographic.items():
-        i = 0
-        for embedding in embeddings:
-            X.append(embedding)
-            y_gender.append(gender_mapper[group_name[0]])
-            y_ethnicity.append(ethnicity_mapper[group_name[1]])
-    
-    # Assuming `X` contains image data and `y_ethnicity`, `y_gender` contain labels
-    X_train, X_test, y_ethnicity_train, y_ethnicity_test, y_gender_train, y_gender_test = train_test_split(
-        X, y_ethnicity, y_gender, test_size=0.2, random_state=42)
-    
-    return X_train, X_test, y_ethnicity_train, y_ethnicity_test, y_gender_train, y_gender_test
 
+def divide_embeddings(embeddings_dataset):
+    embeddings_divided = {'A': {"x_train": [],
+                                "x_test": [],
+                                "y_train": [],
+                                "y_test": []},
+                          'B': {"x_train": [],
+                                "x_test": [],
+                                "y_train": [],
+                                "y_test": []},
+                          'N': {"x_train": [],
+                                "x_test": [],
+                                "y_train": [],
+                                "y_test": []}}
+    
+    for ethnicity in embeddings_divided.keys():
+        # Generate test and train datasets for each ethnicity
+        grupos_filtrados = [f'H{ethnicity}4K_120', f'M{ethnicity}4K_120']
+        embeddings_dataset_ethnicity = {k: v for k, v in embeddings_dataset.items() if k in grupos_filtrados}
+
+        x_train, x_test, y_train, y_test = generate_test_train(embeddings_dataset_ethnicity)
+
+        embeddings_divided[ethnicity]["x_train"] = x_train
+        embeddings_divided[ethnicity]["x_test"] = x_test
+        embeddings_divided[ethnicity]["y_train"] = y_train
+        embeddings_divided[ethnicity]["y_test"] = y_test
+    
+    return embeddings_divided
+
+
+def generate_gender_model():
+    # Define the model
+    model = Sequential([
+        Dense(2048, activation='relu', input_shape=(2048,)),  # First dense layer with ReLU
+        Dense(2, activation='softmax')  # Output layer with softmax for binary classification
+    ])
+
+    # Compile the model
+    model.compile(optimizer='adam',
+                  loss='categorical_crossentropy',  # Use categorical_crossentropy if labels are one-hot encoded
+                  metrics=['accuracy'])
+    
+    return model
+
+
+def train_gender_model(x_train, y_train, x_test, y_test):
+    model = generate_gender_model()
+    
+    # Train the model
+    history = model.fit(
+        x_train, y_train,  # Training data
+        validation_data=(x_test, y_test),  # Validation data
+        epochs=20,  # Number of epochs (adjust as needed)
+        batch_size=32,  # Batch size (adjust for performance)
+        verbose=0 # Show training progress
+    )
+    
+    return model, history.history['accuracy'][-1], history.history['val_accuracy'][-1]
+
+
+#### TAREA 2.2
+
+def get_all_accuracies_table(gender_models, embeddings):
+    accuracies = {  'A': {
+                        'A': None,
+                        'B': None,
+                        'N': None},
+                    'B': {
+                        'A': None,
+                        'B': None,
+                        'N': None},
+                    'N': {
+                        'A': None,
+                        'B': None,
+                        'N': None}
+                 }
+
+    # Evaluate the model and retrieve accuracies
+    for ethnicity, model in gender_models.items():
+        for other_ethnicity in gender_models.keys():
+            x_test = np.concatenate((embeddings[other_ethnicity]["x_train"], embeddings[other_ethnicity]["x_test"]))
+            y_test = np.concatenate((embeddings[other_ethnicity]["y_train"], embeddings[other_ethnicity]["y_test"]))
+
+            test_loss, test_acc = model.evaluate(x_test,y_test, verbose=0)
+
+            accuracies[ethnicity][other_ethnicity] = test_acc * 100
+
+    # Format the accuracies in a table
+    df = pd.DataFrame(accuracies)
+
+    df.index = [f"Dataset {k}" for k in df.index]
+    df.columns = [f"Model {k}" for k in df.columns]
+
+    df.style.set_caption("Accuracy Table").format("{:.2f}").set_table_styles(
+        [{'selector': 'caption', 'props': [('font-size', '16px'), ('font-weight', 'bold')]}]
+    )
+    return df
