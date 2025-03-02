@@ -9,28 +9,50 @@ Created on Mon Jan 23 18:25:58 2023
 import os
 import cv2
 import random
+import pickle
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import tensorflow.keras.backend as K
 import tensorflow.keras.models as Models
 
+
 from pathlib import Path
+from scipy.spatial import distance
+
 from sklearn import preprocessing
 from sklearn.manifold import TSNE
-from scipy.spatial import distance
+from sklearn.model_selection import train_test_split
+
 from tensorflow.keras.layers import Flatten
 from tensorflow.keras.preprocessing import image
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.utils import to_categorical
+
 
 
 random.seed(42)
-np.random.seed(42)  
+np.random.seed(42)
+
+# Rutas a los archivos:
+data_dir = os.path.join('..', 'data')
+models_dir = os.path.join('..', 'models')
+
+bbdd_10_ppl_dir = os.path.join(data_dir, 'bbdd_10_personas')
+embeddings_10_ppl_dataset_path = os.path.join(data_dir, 'embeddings_10_ppl_dataset.pkl')
+imgs_dataset_dir = os.path.join(data_dir,'DiveFace4K_120', '4K_120')
+embeddings_dataset_path = os.path.join(data_dir,'main_embeddings_dataset.pkl')
+
+deploy_path = os.path.join(models_dir, 'deploy.prototxt.txt')
+detector_path = os.path.join(models_dir, 'res10_300x300_ssd_iter_140000.caffemodel')
+model_file = os.path.join(models_dir, 'resnet50.h5')
+
 
 #Detector de caras basado en redes convolucionales 2D
-detector_dnn = cv2.dnn.readNetFromCaffe('deploy.prototxt.txt', 'res10_300x300_ssd_iter_140000.caffemodel')
-
+detector_dnn = cv2.dnn.readNetFromCaffe(deploy_path, detector_path)
 
 #CARGAMOS EL MODELO DE RECONOCIMIENTO FACIAL basado en Resnet-50 y entrenado con VGG-Face
-model_file = '../PRACTICA 1/resnet50.h5'
 model = Models.load_model(model_file)
 last_layer = model.get_layer('avg_pool').output
 feature_layer = Flatten(name = 'flatten')(last_layer)
@@ -134,6 +156,34 @@ def generate_embedding(img):
 
 ################################## CÓDIGO DE LA PRÁCTICA ##################################
 
+def load_datasets():
+    if os.path.isfile(embeddings_10_ppl_dataset_path):  
+        print("Embeddings dataset already exists. Loading...")
+
+    else:
+        print("Embeddings dataset does not exists. Creating it...")
+        create_embeddings_10_ppl_dataset(bbdd_10_ppl_dir, embeddings_10_ppl_dataset_path)
+
+    if os.path.isfile(embeddings_dataset_path):
+        print("Embeddings dataset already exists. Loading...")
+
+    else:
+        print("Embeddings dataset does not exists. Creating and loading the dataset...")
+        create_embeddings_dataset(imgs_dataset_dir, embeddings_dataset_path)
+
+    # Load pickle object
+    with open(embeddings_10_ppl_dataset_path, "rb") as file:
+        embeddings_10_ppl_dataset = pickle.load(file)
+    
+    # Load pickle object
+    with open(embeddings_dataset_path, "rb") as file:
+        embeddings_dataset = pickle.load(file)
+
+    print("Embeddings datasets loaded.")
+    
+    return embeddings_10_ppl_dataset, embeddings_dataset
+
+
 
 def extract_features(image_path, crop_image=False):
     """ Given an image generate its features for comparison.
@@ -151,28 +201,47 @@ def extract_features(image_path, crop_image=False):
     return np.squeeze(embedding)
 
 
-def compare_images(img_path1, img_path2, threshold=0.5, crop_image=False):
-    """ Compara dos imágenes y devuelve si pertenecen a la misma persona """
+def create_embeddings_dataset(bbdd_path, dataset_path, num_embeddings_group=750):
+    """ Crea una base de datos de embeddings a partir de las imágenes en bbdd_path """
+
+    embeddings_db = {}
+    bbdd_path = Path(bbdd_path)  
+ 
+    for group in os.listdir(bbdd_path):
+        group_path = bbdd_path / group  
+ 
+        if group_path.is_dir():
+            embeddings_db[group] = []
+ 
+            # Obtener todas las personas (subcarpetas) en el grupo
+            persons = [person for person in os.listdir(group_path) if os.path.isdir(group_path / person)]
+ 
+            # Seleccionar num_embeddings_group personas aleatorias si hay más de num_embeddings_group
+            selected_persons = random.sample(persons, num_embeddings_group) if len(persons) > num_embeddings_group else persons
+ 
+            # Recorrer las num_embeddings_group personas seleccionadas
+            for person in selected_persons:                
+                person_path = group_path / person
+ 
+                # Obtener las imágenes de la persona
+                img_files = [f for f in os.listdir(person_path) if f.endswith(('.jpg'))]
+ 
+                # Seleccionar la primera imagen de la persona
+                img_file = img_files[0]  # Elegir la primera imagen
+                img_path = person_path / img_file
+ 
+                embedding = extract_features(img_path)
+                embeddings_db[group].append(embedding)
     
-    f1 = extract_features(img_path1, crop_image)
-    f2 = extract_features(img_path2, crop_image)
-    
-    similarity = np.dot(f1, f2)
-    
-    if similarity >= threshold:
-        print(f"Las imágenes pertenecen a la misma persona con similitud {similarity:.2f}")
-        return True
-    else:
-        print(f"Las imágenes pertenecen a diferentes personas con similitud {similarity:.2f}")
-        return False
+    with open(dataset_path, "wb") as file:
+        pickle.dump(embeddings_db, file)
 
 
 # Crear base de datos de embeddings
-def create_embeddings_db(bbdd_path):
+def create_embeddings_10_ppl_dataset(bbdd_10_ppl_dir, embeddings_10_ppl_dataset_path):
     """ Crea una base de datos de embeddings a partir de las imágenes en bbdd_path """
-    print(" Creando la base de datos de embeddings...")
     embeddings_db = {}
-    bbdd_path = Path(bbdd_path) # Convertir a Path para manejar rutas correctamente
+    bbdd_path = Path(bbdd_10_ppl_dir) # Convertir a Path para manejar rutas correctamente
     for person in os.listdir(bbdd_path):
         person_path = bbdd_path / person  # Construcción segura de rutas
         
@@ -185,12 +254,33 @@ def create_embeddings_db(bbdd_path):
                 embedding = extract_features(img_path)
                 embeddings_db[person].append(embedding)
     
-    print(" Base de datos de embeddings creada con éxito.")
-    return embeddings_db
+    with open(embeddings_10_ppl_dataset_path, "wb") as file:
+        pickle.dump(embeddings_db, file)
 
 
 
-#### TAREA 1
+
+#### TAREA 1.0
+
+
+def compare_images(img_path1, img_path2, threshold=0.5):
+    """ Compara dos imágenes y devuelve si pertenecen a la misma persona """
+    
+    f1 = extract_features(img_path1, True)
+    f2 = extract_features(img_path2, True)
+    
+    similarity = np.dot(f1, f2)
+    
+    if similarity >= threshold:
+        print(f"Las imágenes pertenecen a la misma persona con similitud {similarity:.2f}")
+        return True
+    else:
+        print(f"Las imágenes pertenecen a diferentes personas con similitud {similarity:.2f}")
+        return False
+    
+
+
+#### TAREA 1.1
 
 
 def calculate_far_frr_plot(embeddings_db):
@@ -251,122 +341,68 @@ def calculate_far_frr_plot(embeddings_db):
     return fars, frrs
 
 
-def calcular_histograma(embeddings_db, thresholds=np.linspace(0, 1, 50)):
-    """ Calcula FAR y FRR para diferentes umbrales y genera un gráfico. """
-
-    fars = []
-    frrs = []
+def calcular_histograma_similitudes(embeddings_db, thresholds=np.linspace(0, 1, 50)):
     same_person=[]
     different_person=[]
     
     people = list(embeddings_db.keys())
 
-    for threshold in thresholds:
-        false_accepts = 0
-        false_rejects = 0
-        total_genuine = 0
-        total_impostor = 0
+    for person in people:
+        embeddings = embeddings_db[person]
 
-        for person in people:
-            embeddings = embeddings_db[person]
-
-            #  **Calcular FRR (False Rejection Rate)**
-            for i in range(len(embeddings)):
-                for j in range(i + 1, len(embeddings)):
-                    sim = np.dot(embeddings[i], embeddings[j].T)  # Comparar imágenes de la MISMA persona
-                    different_person.append(sim)
-                    total_genuine += 1
-                    if sim < threshold:
-                        false_rejects += 1  # Error: No reconoce a la persona correcta
-
-            #  **Calcular FAR (False Acceptance Rate)**
+        for i in range(len(embeddings)):
+            for j in range(i + 1, len(embeddings)):
+                sim = np.dot(embeddings[i], embeddings[j].T)  # Comparar imágenes de la MISMA persona
+                same_person.append(sim)
+    
             for other_person in people:
                 if other_person != person:
-                    for emb1 in embeddings:
-                        for emb2 in embeddings_db[other_person]:
-                            sim = np.dot(emb1, emb2.T)  # Comparar imágenes de DIFERENTES personas
-                            same_person.append(sim)
-                            total_impostor += 1
-                            if sim >= threshold:
-                                false_accepts += 1  # Error: Acepta a la persona equivocada
-
-        # Calcular tasas FAR y FRR
-        far = false_accepts / total_impostor if total_impostor > 0 else 0
-        frr = false_rejects / total_genuine if total_genuine > 0 else 0
-
-        fars.append(far)
-        frrs.append(frr)
+                    for emb2 in embeddings_db[other_person]:
+                        sim = np.dot(embeddings[i], emb2.T)  # Comparar imágenes de DIFERENTES personas
+                        different_person.append(sim)
 
     # hacer el histogramama de las dos similitudes, que estan metidos en el array, sam_person y different_person
     plt.figure(figsize=(8, 6))
-    plt.hist(same_person, bins=50, alpha=0.5, color='b', label='same person')
-    plt.hist(different_person, bins=50, alpha=0.5, color='r', label='different person')
-    plt.xlabel("Threshold")
-    plt.ylabel("Error Rate")
-    plt.title("FAR vs FRR en función del umbral")
+    plt.hist(same_person, alpha=0.5, color='b', label='same person', density=True)
+    plt.hist(different_person, alpha=0.5, color='r', label='different person', density=True)
+    plt.xlabel("Ocurrencias")
+    plt.ylabel("Similitud")
+    plt.title("Similitudes")
     plt.legend()
     
     return same_person, different_person
 
 
 
-#### TAREA 2
+#### TAREA 1.2
 
 
-def create_embeddings_6_groups(bbdd_path):
+def create_embeddings_subset(embeddings, num_embedding=50):
     """ Crea una base de datos de embeddings a partir de las imágenes en bbdd_path """
-
-    print(" Creando la base de datos de embeddings...")
-
-    embeddings_db = {}
-    bbdd_path = Path(bbdd_path)  
- 
-    for group in os.listdir(bbdd_path):
-        group_path = bbdd_path / group  
- 
-        if group_path.is_dir():
-            embeddings_db[group] = []
- 
-            # Obtener todas las personas (subcarpetas) en el grupo
-            persons = [person for person in os.listdir(group_path) if os.path.isdir(group_path / person)]
- 
-            # Seleccionar 50 personas aleatorias si hay más de 50
-            selected_persons = random.sample(persons, 50) if len(persons) > 50 else persons
- 
-            # Recorrer las 50 personas seleccionadas
-            for person in selected_persons:
-                person_path = group_path / person
- 
-                # Obtener las imágenes de la persona
-                img_files = [f for f in os.listdir(person_path) if f.endswith(('.jpg'))]
- 
-                # Seleccionar la primera imagen de la persona
-                img_file = img_files[0]  # Elegir la primera imagen
-                img_path = person_path / img_file
- 
-                embedding = extract_features(img_path)
-                embeddings_db[group].append(embedding)
-             
-    return embeddings_db
- 
+    embeddings_subset = {}
+    
+    for key in embeddings:
+        embeddings_subset[key] = embeddings[key][:num_embedding]
+        
+    return embeddings_subset
 
 
-#### TAREA 3
+#### TAREA 1.3
 
 def apply_tsne(embeddings_db):
-    """Aplica t-SNE a los embeddings y los visualiza según su grupo étnico"""
+    """Aplica t-SNE a los embeddings y los visualiza según su grupo étnico y género"""
+    
     embeddings_list = []
     labels_list = []
     
     # Mapear grupos a valores numéricos
-    group_mapping = {'A': 0, 'B': 1, 'N': 2}  # 3 grupos de etnia: A, B, N
+    group_mapping = {'HA': 0, 'HB': 1, 'HN': 2, 'MA': 3, 'MB': 4, 'MN': 5}  # 6 grupos según etnia y género
+    
+    # Guardar los embeddings mappeados con su etiqueta
     for group_name, embeddings in embeddings_db.items():
-        if len(embeddings) == 0:
-            print(f"Advertencia: El grupo {group_name} no tiene embeddings.")
-            continue
- 
-        ethnic_group = group_name[1]  # Segunda letra indica etnia (A, B o N)
-        label = group_mapping.get(ethnic_group, -1)  # Obtener el índice del grupo
+        ethnic_group = group_name[:2]  # Primeras dos letras indican grupo
+        label = group_mapping[ethnic_group]  # Obtener la etiqueta del grupo
+        
         for emb in embeddings:
             if isinstance(emb, np.ndarray) and emb.shape[0] > 0:  # Verifica si es un array válido
                 embeddings_list.append(emb)
@@ -375,10 +411,6 @@ def apply_tsne(embeddings_db):
     if len(embeddings_list) == 0:
         raise ValueError("No hay embeddings válidos para aplicar t-SNE.")
 
-    # Convertir cada embedding a un vector 1D
-    #embeddings_list = [emb.flatten() for emb in embeddings_list]
-
- 
     # Convertir la lista a una matriz numpy
     try:
         embeddings_matrix = np.vstack(embeddings_list)
@@ -387,31 +419,145 @@ def apply_tsne(embeddings_db):
         for i, emb in enumerate(embeddings_list):
             print(f"Embedding {i} shape: {np.array(emb).shape}")
         raise e
- 
-    print(f"Shape de embeddings_matrix: {embeddings_matrix.shape}")
- 
+     
     labels_array = np.array(labels_list)
-    # Definir el valor de perplexity en función del número de muestras
-    n_samples = len(embeddings_list)
-    perplexity = min(30, max(5, n_samples // 3))
-    print(f"Perplexity usada en t-SNE: {perplexity}")
  
     # Aplicar t-SNE
-    tsne = TSNE(n_components=2, perplexity=perplexity, random_state=42)
-    # tsne = TSNE(n_components=2, perplexity=perplexity, max_iter=3000, random_state=42)
- 
-    print(f"Shape de embeddings_matrix antes de t-SNE: {embeddings_matrix.shape}")
-
- 
- 
+    tsne = TSNE(n_components=2, random_state=40)
     embeddings_2d = tsne.fit_transform(embeddings_matrix)
 
- 
+    # Plot the results
     plt.figure(figsize=(8, 6))
-    scatter = plt.scatter(embeddings_2d[:, 1], embeddings_2d[:, 0], c=labels_array, cmap='viridis', alpha=0.7)
-    plt.colorbar(scatter, ticks=[0, 1, 2], label="Grupo étnico (A, B, N)")
-    plt.title("Visualización de embeddings con t-SNE")
+    scatter = plt.scatter(embeddings_2d[:, 1], embeddings_2d[:, 0], c=labels_array%3, cmap='viridis', alpha=0.7)
+    plt.title("Visualización de embeddings con t-SNE (etnias).")
     plt.xlabel("t-SNE Dim 1")
     plt.ylabel("t-SNE Dim 2")
     plt.show()
-    return embeddings_2d, labels_list, embeddings_matrix
+
+    plt.figure(figsize=(8, 6))
+    scatter = plt.scatter(embeddings_2d[:, 1], embeddings_2d[:, 0], c=labels_array, cmap='viridis', alpha=0.7)
+    plt.title("Visualización de embeddings con t-SNE (etnias y géneros).")
+    plt.xlabel("t-SNE Dim 1")
+    plt.ylabel("t-SNE Dim 2")
+    plt.show()
+
+
+
+#### TAREA 2.1
+
+def generate_test_train(embeddings_db):
+    """
+    Convierte un diccionario de embeddings en matrices X e y.
+    Parámetros:
+    - embeddings_db: dict, diccionario con claves que indican el grupo y valores con listas de embeddings.
+ 
+    Retorna:
+    - X: numpy array con los embeddings.
+    - y: numpy array con las etiquetas de género (one-hot encoded).
+    """
+    X = []
+    y = []
+ 
+    for label, embeddings in embeddings_db.items():
+        gender = 0 if label[0] == 'H' else 1  # Hombre (0), Mujer (1)
+        for emb in embeddings:
+            X.append(emb)
+            y.append(gender)
+ 
+    X = np.array(X).astype(float)
+    y = to_categorical(y)  # Convertir a one-hot encoding
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.33, random_state=42, stratify=y)
+ 
+    return X_train, X_test, y_train, y_test
+
+
+def divide_embeddings(embeddings_dataset):
+    embeddings_divided = {'A': {"x_train": [],
+                                "x_test": [],
+                                "y_train": [],
+                                "y_test": []},
+                          'B': {"x_train": [],
+                                "x_test": [],
+                                "y_train": [],
+                                "y_test": []},
+                          'N': {"x_train": [],
+                                "x_test": [],
+                                "y_train": [],
+                                "y_test": []}}
+    
+    for ethnicity in embeddings_divided.keys():
+        # Generate test and train datasets for each ethnicity
+        grupos_filtrados = [f'H{ethnicity}4K_120', f'M{ethnicity}4K_120']
+        embeddings_dataset_ethnicity = {k: v for k, v in embeddings_dataset.items() if k in grupos_filtrados}
+
+        x_train, x_test, y_train, y_test = generate_test_train(embeddings_dataset_ethnicity)
+
+        embeddings_divided[ethnicity]["x_train"] = x_train
+        embeddings_divided[ethnicity]["x_test"] = x_test
+        embeddings_divided[ethnicity]["y_train"] = y_train
+        embeddings_divided[ethnicity]["y_test"] = y_test
+    
+    return embeddings_divided
+
+
+def generate_gender_model():
+    # Define the model
+    model = Sequential([
+        Dense(2048, activation='relu', input_shape=(2048,)),  # First dense layer with ReLU
+        Dense(2, activation='softmax')  # Output layer with softmax for binary classification
+    ])
+
+    # Compile the model
+    model.compile(optimizer='adam',
+                  loss='categorical_crossentropy',  # Use categorical_crossentropy if labels are one-hot encoded
+                  metrics=['accuracy'])
+    
+    return model
+
+
+def train_gender_model(x_train, y_train, x_test, y_test):
+    model = generate_gender_model()
+    
+    # Train the model
+    history = model.fit(
+        x_train, y_train,  # Training data
+        validation_data=(x_test, y_test),  # Validation data
+        epochs=20,  # Number of epochs (adjust as needed)
+        batch_size=32,  # Batch size (adjust for performance)
+        verbose=0 # Show training progress
+    )
+    
+    return model, history.history['accuracy'][-1], history.history['val_accuracy'][-1]
+
+
+#### TAREA 2.2
+
+def get_all_accuracies_table(gender_models, embeddings):
+    accuracies = {}
+    
+    for key in gender_models:
+        accuracies[key] = {}
+        for key2 in embeddings:
+            accuracies[key][key2] = None
+
+    # Evaluate the model and retrieve accuracies
+    for ethnicity, model in gender_models.items():
+        for other_ethnicity in embeddings.keys():
+            x_test = np.concatenate((embeddings[other_ethnicity]["x_train"], embeddings[other_ethnicity]["x_test"]))
+            y_test = np.concatenate((embeddings[other_ethnicity]["y_train"], embeddings[other_ethnicity]["y_test"]))
+
+            test_loss, test_acc = model.evaluate(x_test,y_test, verbose=0)
+
+            accuracies[ethnicity][other_ethnicity] = test_acc * 100
+
+    # Format the accuracies in a table
+    df = pd.DataFrame(accuracies)
+
+    df.index = [f"Dataset {k}" for k in df.index]
+    df.columns = [f"Model {k}" for k in df.columns]
+
+    df.style.set_caption("Accuracy Table").format("{:.2f}").set_table_styles(
+        [{'selector': 'caption', 'props': [('font-size', '16px'), ('font-weight', 'bold')]}]
+    )
+    return df
