@@ -1,0 +1,1 @@
+En esta carpeta meter las imágenes que queramos (no se van a subir al repo)
