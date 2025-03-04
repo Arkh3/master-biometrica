@@ -302,7 +302,7 @@ def calculate_far_frr_plot(embeddings_db):
         for person in people:
             embeddings = embeddings_db[person]
 
-            #  **Calcular FRR (False Rejection Rate)**
+            #  Calcular FRR (False Rejection Rate)
             for i in range(len(embeddings)):
                 for j in range(i + 1, len(embeddings)):
                     sim = np.dot(embeddings[i], embeddings[j].T)  # Comparar imágenes de la MISMA persona
@@ -310,7 +310,7 @@ def calculate_far_frr_plot(embeddings_db):
                     if sim < threshold:
                         false_rejects += 1  # Error: No reconoce a la persona correcta
 
-            #  **Calcular FAR (False Acceptance Rate)**
+            #  Calcular FAR (False Acceptance Rate)
             for other_person in people:
                 if other_person != person:
                     for emb1 in embeddings:
@@ -327,7 +327,7 @@ def calculate_far_frr_plot(embeddings_db):
         fars.append(far)
         frrs.append(frr)
 
-    # **Generar el gráfico**
+    
     plt.figure(figsize=(8, 6))
     plt.plot(thresholds, fars, label="False Acceptance Rate (FAR)", color="red")
     plt.plot(thresholds, frrs, label="False Rejection Rate (FRR)", color="blue")
@@ -546,7 +546,7 @@ def get_all_accuracies_table(gender_models, embeddings):
         for other_ethnicity in embeddings.keys():
             x_test = np.concatenate((embeddings[other_ethnicity]["x_train"], embeddings[other_ethnicity]["x_test"]))
             y_test = np.concatenate((embeddings[other_ethnicity]["y_train"], embeddings[other_ethnicity]["y_test"]))
-
+        # Duda: se esta evauluando el modelo con datos de test y train a la vez ¿??
             test_loss, test_acc = model.evaluate(x_test,y_test, verbose=0)
 
             accuracies[ethnicity][other_ethnicity] = test_acc * 100
