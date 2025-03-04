@@ -39,6 +39,7 @@ np.random.seed(42)
 data_dir = os.path.join('..', 'data')
 models_dir = os.path.join('..', 'models')
 
+
 bbdd_10_ppl_dir = os.path.join(data_dir, 'bbdd_10_personas')
 embeddings_10_ppl_dataset_path = os.path.join(data_dir, 'embeddings_10_ppl_dataset.pkl')
 imgs_dataset_dir = os.path.join(data_dir,'DiveFace4K_120', '4K_120')
@@ -557,7 +558,14 @@ def get_all_accuracies_table(gender_models, embeddings):
     df.index = [f"Dataset {k}" for k in df.index]
     df.columns = [f"Model {k}" for k in df.columns]
 
-    df.style.set_caption("Accuracy Table").format("{:.2f}").set_table_styles(
-        [{'selector': 'caption', 'props': [('font-size', '16px'), ('font-weight', 'bold')]}]
-    )
-    return df
+    df_styled = df.style.background_gradient(cmap='Blues', low=0.1, high=0.2).set_caption("Tabla de Accuracies").format("{:.4f}").set_table_styles([{
+                        'selector': 'table', 
+                        'props': [('font-size', '20px'), ('width', '100%')]
+                    }, {
+                        'selector': 'th', 
+                        'props': [('font-size', '20px'), ('text-align', 'center')]
+                    }, {
+                        'selector': 'td', 
+                        'props': [('font-size', '16px'), ('text-align', 'center')]
+                    }])
+    return df_styled
