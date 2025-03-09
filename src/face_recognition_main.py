@@ -258,109 +258,24 @@ def create_embeddings_10_ppl_dataset(bbdd_10_ppl_dir, embeddings_10_ppl_dataset_
         pickle.dump(embeddings_db, file)
 
 
-
-
-#### TAREA 1.0
-
-
-def compare_images(img_path1, img_path2, threshold=0.5):
-    """ Compara dos imágenes y devuelve si pertenecen a la misma persona """
-    
-    f1 = extract_features(img_path1, True)
-    f2 = extract_features(img_path2, True)
-    
-    similarity = np.dot(f1, f2)
-    
-    if similarity >= threshold:
-        print(f"Las imágenes pertenecen a la misma persona con similitud {similarity:.2f}")
-        return True
-    else:
-        print(f"Las imágenes pertenecen a diferentes personas con similitud {similarity:.2f}")
-        return False
-    
-
-
 #### TAREA 1.1
 
 
-def calculate_far_frr_plot(embeddings_db):
-    """ Calcula FAR y FRR para diferentes umbrales y genera un gráfico. """
-
-    thresholds=np.linspace(0, 1, 50)
-    
-    fars = []
-    frrs = []
- 
-    people = list(embeddings_db.keys())
-
-    for threshold in thresholds:
-        false_accepts = 0
-        false_rejects = 0
-        total_genuine = 0
-        total_impostor = 0
-
-        for person in people:
-            embeddings = embeddings_db[person]
-
-            # Calcular FRR (False Rejection Rate)
-            for i in range(len(embeddings)):
-                for j in range(i + 1, len(embeddings)):
-                    sim = np.dot(embeddings[i], embeddings[j].T)  # Comparar imágenes de la MISMA persona
-                    total_genuine += 1
-                    if sim < threshold:
-                        false_rejects += 1  # Error: No reconoce a la persona correcta
-
-            # Calcular FAR (False Acceptance Rate)
-            for other_person in people:
-                if other_person != person:
-                    for emb1 in embeddings:
-                        for emb2 in embeddings_db[other_person]:
-                            sim = np.dot(emb1, emb2.T)  # Comparar imágenes de DIFERENTES personas
-                            total_impostor += 1
-                            if sim >= threshold:
-                                false_accepts += 1  # Error: Acepta a la persona equivocada
-
-        # Calcular tasas FAR y FRR
-        far = false_accepts / total_impostor if total_impostor > 0 else 0
-        frr = false_rejects / total_genuine if total_genuine > 0 else 0
-
-        fars.append(far)
-        frrs.append(frr)
-
-    # Generar el gráfico
+def plot_farr_frr(fars, frrs, thresholds):
+    # Graficar FAR vs FRR
     plt.figure(figsize=(8, 6))
     plt.plot(thresholds, fars, label="False Acceptance Rate (FAR)", color="red")
     plt.plot(thresholds, frrs, label="False Rejection Rate (FRR)", color="blue")
     plt.xlabel("Threshold")
     plt.ylabel("Error Rate")
-    plt.title("FAR vs FRR en función del umbral")
+    plt.title("FAR vs FRR")
+    plt.xlim(0, 1)
     plt.legend()
     plt.grid()
     plt.show()
-
-    return fars, frrs
-
-
-def calcular_histograma_similitudes(embeddings_db, thresholds=np.linspace(0, 1, 50)):
-    same_person=[]
-    different_person=[]
     
-    people = list(embeddings_db.keys())
-
-    for person in people:
-        embeddings = embeddings_db[person]
-
-        for i in range(len(embeddings)):
-            for j in range(i + 1, len(embeddings)):
-                sim = np.dot(embeddings[i], embeddings[j].T)  # Comparar imágenes de la MISMA persona
-                same_person.append(sim)
     
-            for other_person in people:
-                if other_person != person:
-                    for emb2 in embeddings_db[other_person]:
-                        sim = np.dot(embeddings[i], emb2.T)  # Comparar imágenes de DIFERENTES personas
-                        different_person.append(sim)
-
+def plot_histogram(same_person, different_person):
     # hacer el histogramama de las dos similitudes, que estan metidos en el array, sam_person y different_person
     plt.figure(figsize=(8, 6))
     plt.hist(same_person, alpha=0.5, color='b', label='same person', density=True)
@@ -369,9 +284,6 @@ def calcular_histograma_similitudes(embeddings_db, thresholds=np.linspace(0, 1, 
     plt.ylabel("Similitud")
     plt.title("Similitudes")
     plt.legend()
-    
-    return same_person, different_person
-
 
 
 #### TAREA 1.2
@@ -388,44 +300,8 @@ def create_embeddings_subset(embeddings, num_embedding=50):
 
 
 #### TAREA 1.3
-
-def apply_tsne(embeddings_db):
-    """Aplica t-SNE a los embeddings y los visualiza según su grupo étnico y género"""
     
-    embeddings_list = []
-    labels_list = []
-    
-    # Mapear grupos a valores numéricos
-    group_mapping = {'HA': 0, 'HB': 1, 'HN': 2, 'MA': 3, 'MB': 4, 'MN': 5}  # 6 grupos según etnia y género
-    
-    # Guardar los embeddings mappeados con su etiqueta
-    for group_name, embeddings in embeddings_db.items():
-        ethnic_group = group_name[:2]  # Primeras dos letras indican grupo
-        label = group_mapping[ethnic_group]  # Obtener la etiqueta del grupo
-        
-        for emb in embeddings:
-            if isinstance(emb, np.ndarray) and emb.shape[0] > 0:  # Verifica si es un array válido
-                embeddings_list.append(emb)
-                labels_list.append(label)
- 
-    if len(embeddings_list) == 0:
-        raise ValueError("No hay embeddings válidos para aplicar t-SNE.")
-
-    # Convertir la lista a una matriz numpy
-    try:
-        embeddings_matrix = np.vstack(embeddings_list)
-    except ValueError as e:
-        print("Error en np.vstack(). Verifica que todos los embeddings tengan el mismo tamaño.")
-        for i, emb in enumerate(embeddings_list):
-            print(f"Embedding {i} shape: {np.array(emb).shape}")
-        raise e
-     
-    labels_array = np.array(labels_list)
- 
-    # Aplicar t-SNE
-    tsne = TSNE(n_components=2, random_state=40)
-    embeddings_2d = tsne.fit_transform(embeddings_matrix)
-
+def plot_tsne(embeddings_2d, labels_array):
     # Plot the results
     plt.figure(figsize=(8, 6))
     scatter = plt.scatter(embeddings_2d[:, 1], embeddings_2d[:, 0], c=labels_array%3, cmap='viridis', alpha=0.7)
