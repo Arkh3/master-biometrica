@@ -8,6 +8,7 @@ Created on Mon Jan 23 18:25:58 2023
 
 import os
 import cv2
+import math
 import random
 import pickle
 import numpy as np
@@ -22,6 +23,7 @@ from scipy.spatial import distance
 
 from sklearn import preprocessing
 from sklearn.manifold import TSNE
+from sklearn.metrics import roc_curve, auc
 from sklearn.model_selection import train_test_split
 
 from tensorflow.keras.layers import Flatten
@@ -260,8 +262,71 @@ def create_embeddings_10_ppl_dataset(bbdd_10_ppl_dir, embeddings_10_ppl_dataset_
 
 #### TAREA 1.1
 
+def retrieve_scores_and_true_labels(embeddings_db):
+    """ Plot the roc curve given the embeddings. """
+    
+    y_true = []
+    scores = []
+ 
+    people = list(embeddings_db.keys())
 
-def plot_farr_frr(fars, frrs, thresholds):
+    # Calculate the similitudes and the true labels
+    for person in people:
+        embeddings = embeddings_db[person]
+
+        for i in range(len(embeddings)):
+            for j in range(i + 1, len(embeddings)):
+                score = np.dot(embeddings[i], embeddings[j].T)  # Comparar imágenes de la MISMA persona
+                scores.append(score)
+                y_true.append(1)
+            
+            for other_person in people:
+                if other_person != person:
+                    for emb2 in embeddings_db[other_person]:
+                        score = np.dot(embeddings[i], emb2.T)  # Comparar imágenes de DIFERENTES personas
+                        scores.append(score)
+                        y_true.append(0)
+
+    return np.array(scores), np.array(y_true)
+
+
+def plot_far_frr_curves(scores, y_true):
+    """ Calcula FAR y FRR para diferentes umbrales y genera un gráfico. """
+    
+    if len(scores) != len(y_true):
+        raise Exception(f"Scores and labels must have the same lenght. {len(scores)} vs {len(y_true)}")
+    
+    fars = []
+    frrs = []
+    
+    thresholds=np.linspace(0, 1, 50)
+
+    for threshold in thresholds:
+        false_accepts = 0
+        false_rejects = 0
+        total_genuine = 0
+        total_impostor = 0
+
+        for i in range(len(scores)):
+            score = scores[i]
+            ground_truth = y_true[i]
+            
+            if ground_truth == 1:
+                total_genuine += 1
+                if score < threshold:
+                    false_rejects += 1  # Error: No reconoce a la persona correcta
+            else:
+                total_impostor += 1
+                if score >= threshold:
+                    false_accepts += 1  # Error: Acepta a la persona equivocada
+
+        # Calcular tasas FAR y FRR
+        far = false_accepts / total_impostor if total_impostor > 0 else 0
+        frr = false_rejects / total_genuine if total_genuine > 0 else 0
+
+        fars.append(far)
+        frrs.append(frr)
+
     # Graficar FAR vs FRR
     plt.figure(figsize=(8, 6))
     plt.plot(thresholds, fars, label="False Acceptance Rate (FAR)", color="red")
@@ -273,17 +338,37 @@ def plot_farr_frr(fars, frrs, thresholds):
     plt.legend()
     plt.grid()
     plt.show()
+
+
+def plot_similitude_histogram(scores, y_true):
+    # Tamaños de los bins proporcional al número de muestras
+    bins_genuine = math.ceil(2 * (len(scores[y_true==1]) ** (1/3)))
+    bins_impostor = math.ceil(2 * (len(scores[y_true==0]) ** (1/3)))
     
-    
-def plot_histogram(same_person, different_person):
-    # hacer el histogramama de las dos similitudes, que estan metidos en el array, sam_person y different_person
     plt.figure(figsize=(8, 6))
-    plt.hist(same_person, alpha=0.5, color='b', label='same person', density=True)
-    plt.hist(different_person, alpha=0.5, color='r', label='different person', density=True)
+    plt.hist(scores[y_true==1], bins=bins_genuine ,alpha=0.5, color='b', label='same person', density=True)
+    plt.hist(scores[y_true==0], bins=bins_impostor ,alpha=0.5, color='r', label='different person', density=True)
     plt.xlabel("Ocurrencias")
     plt.ylabel("Similitud")
     plt.title("Similitudes")
     plt.legend()
+
+
+def plot_roc_curve(scores, y_true):
+    """ Plot the ROC curve. """
+    
+    fpr, tpr, thresholds = roc_curve(y_true, scores)
+    roc_auc = auc(fpr, tpr)
+
+    # Plot ROC curve
+    plt.figure()
+    plt.plot(fpr, tpr, lw=2, label=f'ROC curve (area = {roc_auc:.2f})')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic')
+    plt.legend(loc="lower right")
+    plt.grid(True)
+    plt.show()
 
 
 #### TAREA 1.2
@@ -300,25 +385,81 @@ def create_embeddings_subset(embeddings, num_embedding=50):
 
 
 #### TAREA 1.3
+
+def plot_tsne_with_gender(embeddings_2d, labels_array):
+    # Reverse mapping from numeric labels to group names
+    group_labels = {0: 'HA', 1: 'MA', 2: 'HN', 3: 'MN', 4: 'HB', 5: 'MB'}  
+    subgroup_labels = {'H': 0, 'M': 1}  
     
-def plot_tsne(embeddings_2d, labels_array):
-    # Plot the results
     plt.figure(figsize=(8, 6))
-    scatter = plt.scatter(embeddings_2d[:, 1], embeddings_2d[:, 0], c=labels_array%3, cmap='viridis', alpha=0.7)
-    plt.title("Visualización de embeddings con t-SNE (etnias).")
+    
+    # Loop through each unique label
+    for group in subgroup_labels.keys():
+        # Create a mask for the current group
+        indices = [group == group_labels[index][0] for index in labels_array]
+        plt.scatter(
+            embeddings_2d[indices, 1],
+            embeddings_2d[indices, 0],
+            alpha=0.7,
+            label=group
+        )
+    
+    plt.title("t-SNE Visualization of ethinic groups")
     plt.xlabel("t-SNE Dim 1")
     plt.ylabel("t-SNE Dim 2")
+    plt.legend(title="Group")
     plt.show()
 
+
+def plot_tsne_with_ethnic(embeddings_2d, labels_array):
+    # Reverse mapping from numeric labels to group names
+    group_labels = {0: 'HA', 1: 'MA', 2: 'HN', 3: 'MN', 4: 'HB', 5: 'MB'}  
+    subgroup_labels = {'A': 0, 'N': 1, 'B': 2}  
+    
     plt.figure(figsize=(8, 6))
-    scatter = plt.scatter(embeddings_2d[:, 1], embeddings_2d[:, 0], c=labels_array, cmap='viridis', alpha=0.7)
-    plt.title("Visualización de embeddings con t-SNE (etnias y géneros).")
+    
+    # Loop through each unique label
+    for group in subgroup_labels.keys():
+        # Create a mask for the current group
+        indices = [group == group_labels[index][1] for index in labels_array]
+        plt.scatter(
+            embeddings_2d[indices, 1],
+            embeddings_2d[indices, 0],
+            alpha=0.7,
+            label=group
+        )
+    
+    plt.title("t-SNE Visualization of ethinic groups")
     plt.xlabel("t-SNE Dim 1")
     plt.ylabel("t-SNE Dim 2")
+    plt.legend(title="Group")
     plt.show()
 
+    
+def plot_tsne_complete(embeddings_2d, labels_array):
+    # Reverse mapping from numeric labels to group names
+    group_labels = {'HA': 0, 'MA': 1, 'HN': 2, 'MN': 3, 'HB': 4, 'MB': 5}  
 
+    plt.figure(figsize=(8, 6))
+    
+    # Loop through each unique label
+    for group in group_labels.keys():
+        # Create a mask for the current group
+        indices = labels_array == group_labels[group]
+        plt.scatter(
+            embeddings_2d[indices, 1],
+            embeddings_2d[indices, 0],
+            alpha=0.7,
+            label=group
+        )
+    
+    plt.title("t-SNE Visualization of ethnic and gender")
+    plt.xlabel("t-SNE Dim 1")
+    plt.ylabel("t-SNE Dim 2")
+    plt.legend(title="Group")
+    plt.show()
 
+    
 #### TAREA 2.1
 
 def generate_test_train(embeddings_db):
