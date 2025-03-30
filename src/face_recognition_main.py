@@ -404,7 +404,7 @@ def plot_tsne_with_gender(embeddings_2d, labels_array):
             label=group
         )
     
-    plt.title("t-SNE Visualization of ethinic groups")
+    plt.title("t-SNE Visualization of gender groups")
     plt.xlabel("t-SNE Dim 1")
     plt.ylabel("t-SNE Dim 2")
     plt.legend(title="Group")
@@ -582,3 +582,212 @@ def get_all_accuracies_table(gender_models, embeddings):
                     }])
     
     return df_styled
+
+
+def get_all_roc_curves(gender_models, embeddings):
+    for ethnicity, model in gender_models.items():
+        print(f"Model {ethnicity}")
+        
+        predictions = []
+        y_true_list = []
+        
+        for other_ethnicity in embeddings.keys():
+            preds = model.predict(embeddings[other_ethnicity]["x_test"], verbose=0)
+            predictions.append(preds)
+            y_true_list.append(embeddings[other_ethnicity]["y_test"])
+        
+        # Concatenate the predictions and true labels along the first axis
+        all_predictions = np.concatenate(predictions, axis=0)
+        all_y_true = np.concatenate(y_true_list, axis=0)
+
+        plot_roc_curve(all_predictions[:, 1], all_y_true[:, 1])
+        
+def predict_gender(gender_models, model_key, img_path, image=True):
+    """
+    Realiza la predicción de género a partir de una imagen usando el modelo especificado.
+    Parámetros:
+    - model_key (str): Clave del modelo a usar ('A', 'B' o 'N').
+    - img_path (str): Ruta de la imagen a evaluar.
+    Imprime la imagen, la predicción y la clase predicha.
+    """
+    if model_key not in gender_models:
+        print("Error: Modelo no válido. Usa 'A', 'B' o 'N'.")
+        return
+    
+    model = gender_models[model_key]
+
+    # Cargar y mostrar la imagen original
+    img = cv2.imread(img_path)
+    if img is None:
+        print("Error: No se pudo cargar la imagen.")
+        return
+    # si iamge=True impimir la iamgen
+    if image:
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        plt.figure(figsize=(2, 2)) 
+        plt.imshow(img_rgb)
+        plt.axis("off")
+        plt.title(f"Imagen de entrada ({model_key})")
+        plt.show()
+    print(f"\nUsando el modelo '{model_key}':")
+    # Extraer la cara de la imagen
+    img_face = extract_faces(img_path)
+
+    if img_face is None:
+        print("No se detectó ninguna cara en la imagen.")
+        return
+
+    # Generar embedding de la cara detectada
+    embedding = generate_embedding(img_face)
+
+    if embedding is not None:
+        embedding = np.asarray(embedding).reshape(1, -1)  # Asegurar la forma correcta (1, 2048)
+
+        # Usar el modelo correspondiente para la predicción
+        prediction = model.predict(embedding, verbose=0)
+        predicted_class = np.argmax(prediction, axis=1)
+
+        print(f"\tPredicción mujer: {prediction[0][1]:.05f}")
+        print(f"\tPredicción hombre: {prediction[0][0]:.05f}")
+        print("\tClase predicha:", "Hombre" if predicted_class[0] == 0 else "Mujer")
+    else:
+        print("No se pudo generar el embedding de la imagen.")
+        
+        
+#### TAREA 2.5
+
+def generate_test_train2(embeddings_db):
+    """
+    Convierte un diccionario de embeddings en matrices X e y.
+    Parámetros:
+    - embeddings_db: dict, diccionario con claves que indican el grupo y valores con listas de embeddings.
+ 
+    Retorna:
+    - X: numpy array con los embeddings.
+    - y: numpy array con las etiquetas (one-hot encoded) para género y etnia.
+    """
+    X = []
+    y = []
+    
+    # Definir etiquetas para las 6 clases: 3 etnias x 2 géneros = 6 clases
+    for label, embeddings in embeddings_db.items():
+        gender = 0 if label[0] == 'H' else 1  # Hombre (0), Mujer (1)
+        ethnicity = label[1]  # A = Blanco, B = Asiático, N = Negro
+        
+        # Asignamos el índice de clase según la etnia y el género
+        if ethnicity == 'A':  # Blanco
+            ethnicity_label = 0
+        elif ethnicity == 'B':  # Asiático
+            ethnicity_label = 1
+        else:  # Negro
+            ethnicity_label = 2
+        
+        # La etiqueta será una combinación de género y etnia
+        label_combined = ethnicity_label * 2 + gender  # 6 clases posibles
+        
+        for emb in embeddings:
+            X.append(emb)
+            y.append(label_combined)
+ 
+    X = np.array(X).astype(float)
+    y = to_categorical(y, num_classes=6)  # Convertir a one-hot encoding para 6 clases
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.33, random_state=42, stratify=y)
+ 
+    return X_train, X_test, y_train, y_test
+
+
+def generate_combined_model():
+    # Definir el modelo
+    model = Sequential([ 
+        Dense(2048, activation='relu', input_shape=(2048,)), 
+        Dense(6, activation='softmax')  # Capa de salida con 6 clases (combinación de género y etnia)
+    ])
+    
+    # Compilar el modelo
+    model.compile(optimizer='adam',
+                  loss='categorical_crossentropy',  
+                  metrics=['accuracy'])
+    
+    return model
+
+
+def train_combined_model(x_train, y_train, x_test, y_test):
+    model = generate_combined_model()
+
+    history = model.fit(
+        x_train, y_train,  
+        validation_data=(x_test, y_test),  
+        epochs=20,  
+        batch_size=32,  
+        verbose=0  
+    )
+    
+    return model, history.history['accuracy'][-1], history.history['val_accuracy'][-1]
+
+
+def predict_gender_ethnicity(gender_models, combined_model, img_path, image=True):
+    """
+    Realiza la predicción de género y etnia a partir de una imagen usando un único modelo combinado.
+    Parámetros:
+    - combined_model: el modelo entrenado que predice género y etnia.
+    - img_path (str): Ruta de la imagen a evaluar.
+    Imprime la imagen, la predicción y la clase predicha (género y etnia).
+    """
+    # Cargar y mostrar la imagen original
+    img = cv2.imread(img_path)
+    if img is None:
+        print("Error: No se pudo cargar la imagen.")
+        return
+    
+    # Si image=True, imprimir la imagen
+    if image:
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        plt.figure(figsize=(2, 2)) 
+        plt.imshow(img_rgb)
+        plt.axis("off")
+        plt.title(f"Imagen de entrada")
+        plt.show()
+
+    print(f"\nUsando el modelo combinado:")
+    # Extraer la cara de la imagen
+    img_face = extract_faces(img_path)
+
+    if img_face is None:
+        print("No se detectó ninguna cara en la imagen.")
+        return
+
+    # Generar embedding de la cara detectada
+    embedding = generate_embedding(img_face)
+
+    if embedding is not None:
+        embedding = np.asarray(embedding).reshape(1, -1)  # Asegurar la forma correcta (1, 2048)
+
+        # Usar el modelo combinado para la predicción
+        prediction = combined_model.predict(embedding, verbose=0)
+        predicted_class = np.argmax(prediction, axis=1)
+
+        # Mostrar las probabilidades para cada clase
+        print(f"\tPredicción para las clases (Género + Etnia):")
+        print(f"\tPredicción (HA): {prediction[0][0]:.05f}")
+        print(f"\tPredicción (MA): {prediction[0][1]:.05f}")
+        print(f"\tPredicción (HB): {prediction[0][2]:.05f}")
+        print(f"\tPredicción (MB): {prediction[0][3]:.05f}")
+        print(f"\tPredicción (HN): {prediction[0][4]:.05f}")
+        print(f"\tPredicción (MN): {prediction[0][5]:.05f}")
+        
+        # Mostrar la clase predicha (combinación de género y etnia)
+        if predicted_class[0] == 0:
+            print("\tClase predicha: Hombre Etnia A")
+        elif predicted_class[0] == 1:
+            print("\tClase predicha: Mujer Etnia A")
+        elif predicted_class[0] == 2:
+            print("\tClase predicha: Hombre Etnia B")
+        elif predicted_class[0] == 3:
+            print("\tClase predicha: Mujer Etnia B")
+        elif predicted_class[0] == 4:
+            print("\tClase predicha: Hombre Etnia N")
+        elif predicted_class[0] == 5:
+            print("\tClase predicha: Mujer Etnia N")
+    else:
+        print("No se pudo generar el embedding de la imagen.")
