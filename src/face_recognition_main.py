@@ -561,11 +561,7 @@ def get_all_accuracies_table(gender_models, embeddings):
     # Evaluate the model and retrieve accuracies
     for ethnicity, model in gender_models.items():
         for other_ethnicity in embeddings.keys():
-            x_test = np.concatenate((embeddings[other_ethnicity]["x_train"], embeddings[other_ethnicity]["x_test"]))
-            y_test = np.concatenate((embeddings[other_ethnicity]["y_train"], embeddings[other_ethnicity]["y_test"]))
-        # Duda: se esta evauluando el modelo con datos de test y train a la vez ¿??
-            test_loss, test_acc = model.evaluate(x_test,y_test, verbose=0)
-
+            test_loss, test_acc = model.evaluate(embeddings[other_ethnicity]["x_test"], embeddings[other_ethnicity]["y_test"], verbose=0)
             accuracies[ethnicity][other_ethnicity] = test_acc * 100
 
     # Format the accuracies in a table
@@ -584,4 +580,5 @@ def get_all_accuracies_table(gender_models, embeddings):
                         'selector': 'td', 
                         'props': [('font-size', '16px'), ('text-align', 'center')]
                     }])
+    
     return df_styled
