@@ -370,6 +370,22 @@ def plot_roc_curve(scores, y_true):
     plt.grid(True)
     plt.show()
 
+def plot_roc_curve2(scores, y_true, ax=None):
+    """Plot the ROC curve, with optional Axes support for subplots."""
+    fpr, tpr, thresholds = roc_curve(y_true, scores)
+    roc_auc = auc(fpr, tpr)
+
+    if ax is None:
+        fig, ax = plt.subplots()
+
+    ax.plot(fpr, tpr, lw=2, label=f'ROC curve (AUC = {roc_auc:.2f})')
+    ax.plot([0, 1], [0, 1], color='gray', linestyle='--', lw=1)
+    ax.set_xlabel('False Positive Rate')
+    ax.set_ylabel('True Positive Rate')
+    ax.set_title('Receiver Operating Characteristic')
+    ax.legend(loc="lower right")
+    ax.grid(True)
+
 
 #### TAREA 1.2
 
@@ -570,7 +586,7 @@ def get_all_accuracies_table(gender_models, embeddings):
     df.index = [f"Dataset {k}" for k in df.index]
     df.columns = [f"Model {k}" for k in df.columns]
 
-    df_styled = df.style.background_gradient(cmap='Blues', low=0.1, high=0.2).set_caption("Tabla de Accuracies").format("{:.4f}").set_table_styles([{
+    df_styled = df.style.background_gradient(cmap='Blues', low=0.1, high=0.2, axis=None).set_caption("Tabla de Accuracies").format("{:.4f}").set_table_styles([{
                         'selector': 'table', 
                         'props': [('font-size', '20px'), ('width', '100%')]
                     }, {
