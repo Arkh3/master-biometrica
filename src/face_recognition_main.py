@@ -353,7 +353,7 @@ def plot_similitude_histogram(scores, y_true):
     plt.title("Similitudes")
     plt.legend()
 
-
+'''
 def plot_roc_curve(scores, y_true):
     """ Plot the ROC curve. """
     
@@ -369,8 +369,8 @@ def plot_roc_curve(scores, y_true):
     plt.legend(loc="lower right")
     plt.grid(True)
     plt.show()
-
-def plot_roc_curve2(scores, y_true, ax=None):
+'''
+def plot_roc_curve(scores, y_true, ax=None):
     """Plot the ROC curve, with optional Axes support for subplots."""
     fpr, tpr, thresholds = roc_curve(y_true, scores)
     roc_auc = auc(fpr, tpr)
@@ -807,3 +807,58 @@ def predict_gender_ethnicity(gender_models, combined_model, img_path, image=True
             print("\tClase predicha: Mujer Etnia N")
     else:
         print("No se pudo generar el embedding de la imagen.")
+
+
+def get_all_roc_curves(gender_models, embeddings):
+    """
+    Genera un ROC para cada modelo contenido en 'gender_models'.
+    Cada gráfico se ubica en un subplot distinto, distribuidos en 2 columnas.
+    """
+    # Número de modelos a graficar
+    n_models = len(gender_models)
+
+    # Ajustamos cuántas filas y columnas queremos (2 columnas en este ejemplo)
+    ncols = 2
+    # Calculamos las filas necesarias (redondeo hacia arriba)
+    nrows = (n_models + ncols - 1) // ncols
+
+    # Creamos la figura con subplots en un grid de (nrows x ncols)
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 5 * nrows))
+
+    # Si solo hay un subplot, 'axes' no será un array de arrays, sino un solo Axes
+    # Convertimos a array para iterar con más facilidad
+    if n_models == 1:
+        axes = np.array([axes])
+    else:
+        axes = axes.ravel()  # "aplanamos" la matriz de ejes a 1D
+
+    # Iteramos sobre cada modelo y su índice
+    for i, (ethnicity, model) in enumerate(gender_models.items()):
+        #print(f"Procesando modelo: {ethnicity}")
+
+        predictions = []
+        y_true_list = []
+        
+        # Concatenamos predicciones y labels verdaderos de todos los "other_ethnicity"
+        for other_ethnicity in embeddings.keys():
+            preds = model.predict(embeddings[other_ethnicity]["x_test"], verbose=0)
+            predictions.append(preds)
+            y_true_list.append(embeddings[other_ethnicity]["y_test"])
+
+        all_predictions = np.concatenate(predictions, axis=0)
+        all_y_true = np.concatenate(y_true_list, axis=0)
+
+        # Seleccionamos la columna 1 (asumiendo que la salida del modelo es [prob_clase0, prob_clase1])
+        ax = axes[i]  # Seleccionamos el subplot correspondiente
+        plot_roc_curve(all_predictions[:, 1], all_y_true[:, 1], ax=ax)
+
+        # Ajustamos el título para este subplot
+        ax.set_title(f"ROC - Modelo: {ethnicity}")
+
+    # Si sobran ejes (por ejemplo, si #modelos es impar), podemos borrarlos
+    for j in range(i + 1, nrows * ncols):
+        fig.delaxes(axes[j])
+
+    # Ajustamos el espaciado
+    plt.tight_layout()
+    plt.show()
