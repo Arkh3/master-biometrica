@@ -537,13 +537,13 @@ def divide_embeddings(embeddings_dataset):
 def generate_gender_model():
     # Define the model
     model = Sequential([
-        Dense(2048, activation='relu', input_shape=(2048,)),  # First dense layer with ReLU
-        Dense(2, activation='softmax')  # Output layer with softmax for binary classification
+        Dense(2048, activation='relu', input_shape=(2048,)),  
+        Dense(2, activation='softmax')  
     ])
 
     # Compile the model
     model.compile(optimizer='adam',
-                  loss='categorical_crossentropy',  # Use categorical_crossentropy if labels are one-hot encoded
+                  loss='categorical_crossentropy',  
                   metrics=['accuracy'])
     
     return model
@@ -554,11 +554,11 @@ def train_gender_model(x_train, y_train, x_test, y_test):
     
     # Train the model
     history = model.fit(
-        x_train, y_train,  # Training data
-        validation_data=(x_test, y_test),  # Validation data
-        epochs=20,  # Number of epochs (adjust as needed)
-        batch_size=32,  # Batch size (adjust for performance)
-        verbose=0 # Show training progress
+        x_train, y_train, 
+        validation_data=(x_test, y_test), 
+        epochs=20,  
+        batch_size=32,  
+        verbose=0 
     )
     
     return model, history.history['accuracy'][-1], history.history['val_accuracy'][-1]
@@ -657,7 +657,7 @@ def predict_gender(gender_models, model_key, img_path, image=True):
     embedding = generate_embedding(img_face)
 
     if embedding is not None:
-        embedding = np.asarray(embedding).reshape(1, -1)  # Asegurar la forma correcta (1, 2048)
+        embedding = np.asarray(embedding).reshape(1, -1)  
 
         # Usar el modelo correspondiente para la predicción
         prediction = model.predict(embedding, verbose=0)
@@ -706,7 +706,7 @@ def generate_test_train2(embeddings_db):
             y.append(label_combined)
  
     X = np.array(X).astype(float)
-    y = to_categorical(y, num_classes=6)  # Convertir a one-hot encoding para 6 clases
+    y = to_categorical(y, num_classes=6)  
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.33, random_state=42, stratify=y)
  
@@ -777,7 +777,7 @@ def predict_gender_ethnicity(gender_models, combined_model, img_path, image=True
     embedding = generate_embedding(img_face)
 
     if embedding is not None:
-        embedding = np.asarray(embedding).reshape(1, -1)  # Asegurar la forma correcta (1, 2048)
+        embedding = np.asarray(embedding).reshape(1, -1)  
 
         # Usar el modelo combinado para la predicción
         prediction = combined_model.predict(embedding, verbose=0)
@@ -814,32 +814,31 @@ def get_all_roc_curves(gender_models, embeddings):
     Genera un ROC para cada modelo contenido en 'gender_models'.
     Cada gráfico se ubica en un subplot distinto, distribuidos en 2 columnas.
     """
-    # Número de modelos a graficar
+
     n_models = len(gender_models)
 
-    # Ajustamos cuántas filas y columnas queremos (2 columnas en este ejemplo)
+  
     ncols = 2
-    # Calculamos las filas necesarias (redondeo hacia arriba)
+
     nrows = (n_models + ncols - 1) // ncols
 
-    # Creamos la figura con subplots en un grid de (nrows x ncols)
+    
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 5 * nrows))
 
-    # Si solo hay un subplot, 'axes' no será un array de arrays, sino un solo Axes
-    # Convertimos a array para iterar con más facilidad
+
     if n_models == 1:
         axes = np.array([axes])
     else:
-        axes = axes.ravel()  # "aplanamos" la matriz de ejes a 1D
+        axes = axes.ravel() 
 
-    # Iteramos sobre cada modelo y su índice
+
     for i, (ethnicity, model) in enumerate(gender_models.items()):
-        #print(f"Procesando modelo: {ethnicity}")
+
 
         predictions = []
         y_true_list = []
         
-        # Concatenamos predicciones y labels verdaderos de todos los "other_ethnicity"
+       
         for other_ethnicity in embeddings.keys():
             preds = model.predict(embeddings[other_ethnicity]["x_test"], verbose=0)
             predictions.append(preds)
@@ -848,17 +847,15 @@ def get_all_roc_curves(gender_models, embeddings):
         all_predictions = np.concatenate(predictions, axis=0)
         all_y_true = np.concatenate(y_true_list, axis=0)
 
-        # Seleccionamos la columna 1 (asumiendo que la salida del modelo es [prob_clase0, prob_clase1])
-        ax = axes[i]  # Seleccionamos el subplot correspondiente
+       
+        ax = axes[i]  
         plot_roc_curve(all_predictions[:, 1], all_y_true[:, 1], ax=ax)
 
-        # Ajustamos el título para este subplot
         ax.set_title(f"ROC - Modelo: {ethnicity}")
 
-    # Si sobran ejes (por ejemplo, si #modelos es impar), podemos borrarlos
+ 
     for j in range(i + 1, nrows * ncols):
         fig.delaxes(axes[j])
 
-    # Ajustamos el espaciado
     plt.tight_layout()
     plt.show()
